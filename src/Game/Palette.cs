@@ -1,6 +1,6 @@
 using Godot;
 
-namespace GameTemplate.Game;
+namespace CodeBreaker.Game;
 
 /// <summary>UI colours, in one place so each game can restyle quickly.</summary>
 public static class Palette

@@ -1,7 +1,7 @@
-using GameTemplate.Core;
+using CodeBreaker.Core;
 using Xunit;
 
-namespace GameTemplate.Tests;
+namespace CodeBreaker.Tests;
 
 public class ScoreboardTests
 {

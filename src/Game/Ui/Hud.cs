@@ -1,7 +1,7 @@
 using System;
 using Godot;
 
-namespace GameTemplate.Game.Ui;
+namespace CodeBreaker.Game.Ui;
 
 /// <summary>
 /// The on-screen layer: title, score, status, and the buttons. Sized for a 720×1280 portrait
