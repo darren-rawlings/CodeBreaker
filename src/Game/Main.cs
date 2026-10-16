@@ -27,18 +27,28 @@ public partial class Main : Node3D
 	private static readonly AdMobConfig AdUnits = AdMobConfig.Test;
 
 	private const float Pitch = 0.82f;
-	private const float RowPitch = 0.8f;
+	private const float RowPitch = 0.72f;
+
+	/// <summary>The strip in front of the first row that holds the key-peg legend.</summary>
+	private const float LegendDepth = 1.0f;
 	private const float PegRadius = 0.29f;
 	private const float KeyRadius = 0.1f;
 	private const float Thickness = 0.4f;
 
-	/// <summary>The peg colours, in order; levels use the first 6 or 8.</summary>
+	/// <summary>
+	/// The peg colours, in order; levels use the first 4, 6 or 8. The eighth is the blank (Hard
+	/// only): it shows as a faint, smoky ghost of a peg, an "empty" hole that still counts.
+	/// </summary>
 	private static readonly Color[] PegColours =
 	{
-		new("ef4444"), new("f97316"), new("facc15"), new("22c55e"), new("3b82f6"), new("a855f7"), new("f5f5f4"), new("ec4899"),
+		new("ef4444"), new("3b82f6"), new("facc15"), new("22c55e"), new("a855f7"), new("f97316"), new("ec4899"), new("d6d3d1"),
 	};
 
-	private static readonly string[] ColourNames = { "red", "orange", "yellow", "green", "blue", "purple", "white", "pink" };
+	private static readonly string[] ColourNames = { "red", "blue", "yellow", "green", "purple", "orange", "pink", "blank" };
+
+	/// <summary>Key pegs: red for right colour in the right place, white for right colour in the wrong place.</summary>
+	private static readonly Color ExactColour = new("dc2626");
+	private static readonly Color NearColour = new("f5f5f4");
 
 	private readonly List<Node3D> _boardNodes = new();
 	private readonly List<MeshInstance3D> _trayPegs = new();
@@ -66,6 +76,7 @@ public partial class Main : Node3D
 
 	private bool _demo;
 	private bool _quitAfterDemo;
+	private string? _clip;
 	private float _initialSpin;
 	private float _demoTimer;
 
@@ -73,7 +84,7 @@ public partial class Main : Node3D
 
 	private float BoardWidth => CurrentLevel.Pegs * Pitch + 1.5f;
 
-	private float BoardLength => CurrentLevel.Guesses * RowPitch + 1.9f;
+	private float BoardLength => CurrentLevel.Guesses * RowPitch + 1.9f + LegendDepth;
 
 	public override void _Ready()
 	{
@@ -83,9 +94,9 @@ public partial class Main : Node3D
 		ReadDeveloperArgs();
 		AudioServer.SetBusMute(0, _settings.Muted);
 
-		_camera = new Camera3D { Position = new Vector3(0, 15.2f, 8.4f), Fov = 52 };
+		_camera = new Camera3D { Position = new Vector3(0, 15.2f, 8.4f), Fov = 58 };
 		AddChild(_camera);
-		_camera.LookAt(new Vector3(0, 0f, 1.7f));
+		_camera.LookAt(new Vector3(0, 0f, 1.95f));
 		Stage.Build(this, -Thickness, new Color("1a0f09"));
 		_rig = new Node3D();
 		AddChild(_rig);
@@ -110,16 +121,11 @@ public partial class Main : Node3D
 		AddChild(_hud);
 		_hud.Build(new HudOptions(Title, "Tap colours to fill the row, then Check", PiecesLabel: "Pegs",
 			PieceName: s => s switch { Style.Plastic => "Plastic", Style.Wood => "Wood", Style.Metal => "Metal", Style.Glass => "Glass", _ => "Marble" },
-			UndoText: "Hint (ad)", LevelOnly: true),
-			_settings.Muted, GameMode.PlayerVsComputer, _settings.Difficulty, _settings.Board, _settings.Pieces);
+			UndoText: "Hint (ad)", LevelOnly: true), _settings);
 		_hud.NewGamePressed += OnNewGamePressed;
 		_hud.UndoPressed += OnHintPressed;
-		_hud.MuteToggled += muted =>
-		{
-			_settings.Muted = muted;
-			AudioServer.SetBusMute(0, muted);
-			_settings.Save();
-		};
+		_hud.RestartPressed += OnRestartPressed;
+		_hud.SetTutorial(Tutorial.Pages);
 		_hud.ModeChosen += (_, difficulty) =>
 		{
 			_settings.Difficulty = difficulty;
@@ -141,34 +147,28 @@ public partial class Main : Node3D
 		};
 
 		// The Check button sits where New Game appears at the end of a game.
-		var layer = new CanvasLayer();
-		AddChild(layer);
-		_check = new Button { Text = "Check", FocusMode = Control.FocusModeEnum.None, Visible = false };
-		_check.AddThemeFontSizeOverride("font_size", 30);
-		foreach (var state in new[] { "normal", "hover", "pressed", "hover_pressed" })
-		{
-			var box = new StyleBoxFlat { BgColor = state.StartsWith("pressed") ? theme.Accent.Darkened(0.2f) : theme.Accent, AntiAliasing = true };
-			box.SetCornerRadiusAll(32);
-			box.SetContentMarginAll(12);
-			_check.AddThemeStyleboxOverride(state, box);
-		}
-		_check.SetAnchorsPreset(Control.LayoutPreset.CenterBottom);
-		_check.OffsetLeft = -150;
-		_check.OffsetRight = 150;
-		_check.OffsetTop = -192;
-		_check.OffsetBottom = -128;
+		_check = _hud.AddButton("Check", true, Control.LayoutPreset.CenterBottom, -150, 150, -192, -128, 30);
+		_check.Visible = false;
 		_check.Pressed += () => _ = Check();
-		layer.AddChild(_check);
 
-		_spin = new SpinControl(_rig, () => !_busy);
+		_spin = new SpinControl(_rig, () => !_busy && !_settings.FreezeBoard);
 		_spin.Tapped += OnTapped;
+		if (_clip != null)
+		{
+			_hud.Visible = false;
+			_ = PlayClip(_clip);
+			return;
+		}
 		StartGame();
+		if (!_demo)
+			_hud.OfferTutorialOnce(_settings);
+		_hud.ApplyDevFlags();
 	}
 
 	// ---------------------------------------------------------------- Board
 
 	/// <summary>Row 0 (your first guess) is nearest you; the secret sits at the far end.</summary>
-	private float RowZ(int row) => BoardLength / 2 - 0.9f - row * RowPitch;
+	private float RowZ(int row) => BoardLength / 2 - 0.9f - LegendDepth - row * RowPitch;
 
 	private float PegX(int index) => (index - (CurrentLevel.Pegs - 1) / 2f) * Pitch - 0.45f;
 
@@ -177,6 +177,8 @@ public partial class Main : Node3D
 	private Look PegLook(int colour)
 	{
 		var c = PegColours[colour];
+		if (colour == CurrentLevel.BlankColour)
+			return new Look(Look.GlassPattern, c, c.Darkened(0.3f), 0.1f, Opacity: 0.22f);
 		return _settings.Pieces switch
 		{
 			Style.Glass => new Look(Look.GlassPattern, c, c.Lightened(0.4f), 0.04f, Opacity: 0.7f),
@@ -236,6 +238,8 @@ public partial class Main : Node3D
 		};
 		Add(_rowGlow);
 
+		BuildLegend();
+
 		// The secret, under a cover that lifts away at the end.
 		for (int i = 0; i < level.Pegs; i++)
 		{
@@ -283,6 +287,40 @@ public partial class Main : Node3D
 		_boardNodes.Add(node);
 	}
 
+	/// <summary>
+	/// The key to the clues, written on the board in front of the first row: a red key peg for
+	/// "right colour, right place" and a white one for "right colour, wrong place".
+	/// </summary>
+	private void BuildLegend()
+	{
+		float front = BoardLength / 2 - LegendDepth / 2 - 0.12f;
+		var lines = new[] { (true, "Right colour, right place"), (false, "Right colour, wrong place") };
+		for (int i = 0; i < lines.Length; i++)
+		{
+			var (exact, text) = lines[i];
+			float z = front + (i - 0.5f) * 0.42f;
+			float left = -BoardWidth / 2 + 0.45f;
+			var key = MakeKey(0, 0, exact);
+			key.Position = new Vector3(left, KeyRadius, z);
+			key.Scale = Vector3.One * 1.3f;
+			_boardNodes.Add(key);
+			Add(new Label3D
+			{
+				Text = text,
+				FontSize = 80,
+				PixelSize = 0.0042f,
+				OutlineSize = 10,
+				Modulate = new Color("fff3e0"),
+				OutlineModulate = new Color(0.12f, 0.06f, 0.02f, 0.85f),
+				HorizontalAlignment = HorizontalAlignment.Left,
+				Position = new Vector3(left + 0.22f, 0.01f, z),
+				RotationDegrees = new Vector3(-90, 0, 0),
+				Shaded = false,
+				DoubleSided = false,
+			});
+		}
+	}
+
 	/// <summary>Key pegs sit in a small grid to the right of each row.</summary>
 	private Vector3 KeyPosition(int row, int index)
 	{
@@ -294,7 +332,8 @@ public partial class Main : Node3D
 
 	private MeshInstance3D MakeKey(int row, int index, bool exact)
 	{
-		var look = exact ? Styles.Pieces(Style.Metal).One with { A = new Color("f5c542"), B = new Color("b8860b") } : Styles.Pieces(Style.Metal).Two;
+		var c = exact ? ExactColour : NearColour;
+		var look = new Look(Look.PlasticPattern, c, c.Darkened(0.25f), 0.3f);
 		var key = new MeshInstance3D
 		{
 			Mesh = new SphereMesh { Radius = KeyRadius, Height = KeyRadius * 2, RadialSegments = 12, Rings = 6 },
@@ -469,11 +508,16 @@ public partial class Main : Node3D
 		}
 		await ToSignal(lift, Tween.SignalName.Finished);
 		Click(0.8f, _cover.GlobalPosition, onTable: true);
-		GetTree().CreateTimer(0.6).Timeout += () =>
+		if (solved)
 		{
-			foreach (var peg in _secretPegs)
-				peg.MaterialOverlay = null;
-		};
+			// The cracked code catches fire, peg by peg.
+			for (int i = 0; i < _secretPegs.Count; i++)
+			{
+				var peg = _secretPegs[i];
+				_fires.Add(Flames.SetAlight(_rig, peg.Position, new[] { peg }, radius: 0.24f, size: 0.8f, withLight: i == 0));
+				await Wait(0.12f);
+			}
+		}
 	}
 
 	private void Click(float strength, Vector3? at = null, bool onTable = false)
@@ -532,11 +576,85 @@ public partial class Main : Node3D
 
 	private void StartGame()
 	{
+		PutOutFire();
 		_game = new CodeGame(CurrentLevel);
 		foreach (var peg in _current)
 			peg?.QueueFree();
 		BuildBoard();
 		RefreshUi();
+	}
+
+	/// <summary>Starting over gives up on this code: it counts as unsolved unless you watch an ad.</summary>
+	private void OnRestartPressed()
+	{
+		if (_busy)
+			return;
+		if (_game.IsOver || _game.Guesses.Count == 0)
+		{
+			StartGame();
+			return;
+		}
+		_hud.AskRestart(true, countLoss =>
+		{
+			if (countLoss)
+				_played++;
+			StartGame();
+		}, then => _ads.ShowRewarded(rewarded: then, closed: () => { }));
+	}
+
+	private readonly List<Flames> _fires = new();
+
+	private void PutOutFire()
+	{
+		foreach (var fire in _fires)
+			fire.Extinguish();
+		_fires.Clear();
+		foreach (var peg in _secretPegs)
+			peg.MaterialOverlay = null;
+	}
+
+	// ---------------------------------------------------------------- Tutorial clips
+
+	/// <summary>
+	/// Plays one scripted scene for the tutorial (with --clip=name; Record-Clips.ps1 records it),
+	/// then quits. The HUD is hidden so the clip shows only the board.
+	/// </summary>
+	private async Task PlayClip(string clip)
+	{
+		// The clip is square: frame the board more tightly than the tall phone screen does.
+		_camera.Fov = 42;
+		_camera.LookAt(new Vector3(0, 0f, 1.2f));
+		_settings.Muted = false;
+		_settings.Difficulty = clip == "blank" ? Difficulty.Hard : Difficulty.Medium;
+		int blank = CurrentLevel.BlankColour;
+		var (secret, before, shown) = clip switch
+		{
+			// Guess, read the key pegs, guess again.
+			"guess" => (new[] { 1, 3, 0, 4 }, new int[][] { }, new[] { new[] { 0, 1, 2, 3 }, new[] { 1, 0, 3, 5 } }),
+			// Late in a game: the last clue gives it away.
+			"crack" => (new[] { 4, 2, 2, 0 }, new[] { new[] { 0, 1, 2, 3 }, new[] { 2, 2, 4, 0 }, new[] { 4, 0, 2, 2 } }, new[] { new[] { 4, 2, 2, 0 } }),
+			// Hard: the blank counts as a colour.
+			_ => (new[] { 2, blank, 5, blank }, new[] { new[] { 0, 1, 2, 3 } }, new[] { new[] { 2, blank, 6, 4 }, new[] { 2, blank, 5, blank } }),
+		};
+		_game = new CodeGame(CurrentLevel, secret);
+		foreach (var guess in before)
+			_game.Guess(guess);
+		BuildBoard();
+		RefreshUi();
+		await Wait(0.8f);
+		foreach (var guess in shown)
+		{
+			foreach (int colour in guess)
+			{
+				Place(colour);
+				await Wait(0.42f);
+			}
+			await Wait(0.4f);
+			await Check();
+			await Wait(1.4f);
+		}
+		await Wait(clip == "crack" ? 1.8f : 0.6f);
+		GetTree().Quit();
 	}
 
 	private bool CanHint => !_busy && !_game.IsOver && _game.Revealed.Count < CurrentLevel.Pegs - 1;
@@ -566,6 +684,7 @@ public partial class Main : Node3D
 		_hud.SetScore($"Solved {_solved} of {_played}   ·   {ColourCount()}");
 		_hud.SetNewGameVisible(_game.IsOver && !_busy);
 		_hud.SetUndoVisible(CanHint);
+		_hud.SetRestartVisible(!_game.IsOver);
 		_check.Visible = !_game.IsOver && !_busy && CurrentGuess() != null;
 		if (_game.IsOver)
 		{
@@ -585,7 +704,7 @@ public partial class Main : Node3D
 	private string ColourCount()
 	{
 		var level = CurrentLevel;
-		return $"{level.Pegs} pegs, {level.Colours} colours{(level.Repeats ? ", repeats" : "")}";
+		return level.Blank ? $"{level.Colours - 1} colours + blank" : $"{level.Colours} colours{(level.Repeats ? ", repeats" : ", no repeats")}";
 	}
 
 	private SignalAwaiter Wait(float seconds) => ToSignal(GetTree().CreateTimer(seconds), SceneTreeTimer.SignalName.Timeout);
@@ -627,6 +746,9 @@ public partial class Main : Node3D
 					break;
 				case "--spin":
 					_initialSpin = Mathf.DegToRad(float.Parse(value, System.Globalization.CultureInfo.InvariantCulture));
+					break;
+				case "--clip":
+					_clip = value;
 					break;
 			}
 		}

@@ -8,15 +8,21 @@ namespace CodeBreaker.Core;
 /// <summary>How a guess scored: exact (right colour, right place) and near (right colour, wrong place).</summary>
 public readonly record struct Feedback(int Exact, int Near);
 
-/// <summary>A level's shape: how many pegs, how many colours, and whether a colour may repeat.</summary>
-public sealed record Level(int Pegs, int Colours, bool Repeats, int Guesses = 10)
+/// <summary>
+/// A level's shape: how many pegs, how many colours, and whether a colour may repeat. With
+/// <see cref="Blank"/>, the last colour is a blank: an empty hole counts as a colour of its own.
+/// </summary>
+public sealed record Level(int Pegs, int Colours, bool Repeats, int Guesses = 12, bool Blank = false)
 {
 	public static Level For(Difficulty difficulty) => difficulty switch
 	{
-		Difficulty.Easy => new(4, 6, Repeats: false),
+		Difficulty.Easy => new(4, 4, Repeats: false),
 		Difficulty.Medium => new(4, 6, Repeats: true),
-		_ => new(5, 8, Repeats: true),
+		_ => new(4, 8, Repeats: true, Blank: true),
 	};
+
+	/// <summary>The blank's colour number, or -1 if this level has none.</summary>
+	public int BlankColour => Blank ? Colours - 1 : -1;
 }
 
 /// <summary>

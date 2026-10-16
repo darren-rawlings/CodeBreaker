@@ -30,11 +30,13 @@ public class CodeTests
 	}
 
 	[Fact]
-	public void TenWrongGuessesLose()
+	public void TwelveWrongGuessesLose()
 	{
 		var game = new CodeGame(Level.For(Difficulty.Medium), new[] { 1, 2, 3, 4 });
-		for (int i = 0; i < 10; i++)
+		for (int i = 0; i < 11; i++)
 			game.Guess(new[] { 0, 0, 0, 0 });
+		Assert.False(game.IsOver);
+		game.Guess(new[] { 0, 0, 0, 0 });
 		Assert.True(game.IsOver);
 		Assert.False(game.IsSolved);
 	}
@@ -50,12 +52,37 @@ public class CodeTests
 		Assert.False(new CodeGame(Level.For(Difficulty.Easy), 1).IsValid(new[] { 0, 0, 1, 2 }));
 	}
 
+	[Theory]
+	[InlineData(Difficulty.Easy, 4, false)]
+	[InlineData(Difficulty.Medium, 6, false)]
+	[InlineData(Difficulty.Hard, 8, true)]
+	public void LevelsHaveFourPegsTwelveRowsAndMoreColours(Difficulty difficulty, int colours, bool blank)
+	{
+		var level = Level.For(difficulty);
+		Assert.Equal(4, level.Pegs);
+		Assert.Equal(12, level.Guesses);
+		Assert.Equal(colours, level.Colours);
+		Assert.Equal(blank, level.Blank);
+	}
+
+	[Fact]
+	public void TheBlankScoresLikeAColour()
+	{
+		var level = Level.For(Difficulty.Hard);
+		int blank = level.BlankColour;
+		Assert.Equal(7, blank);
+		var game = new CodeGame(level, new[] { blank, 1, blank, 2 });
+		Assert.True(game.IsValid(new[] { blank, blank, blank, blank }));
+		Assert.Equal(new Feedback(1, 1), game.Guess(new[] { blank, blank, 0, 0 }));
+		Assert.Equal(new Feedback(0, 2), CodeGame.Score(game.Secret, new[] { 0, blank, 0, blank }));
+	}
+
 	[Fact]
 	public void HintsRevealEachPegOnce()
 	{
 		var game = new CodeGame(Level.For(Difficulty.Hard), 3);
-		var shown = Enumerable.Range(0, 5).Select(_ => game.RevealHint()).ToArray();
-		Assert.Equal(new[] { 0, 1, 2, 3, 4 }, shown);
+		var shown = Enumerable.Range(0, 4).Select(_ => game.RevealHint()).ToArray();
+		Assert.Equal(new[] { 0, 1, 2, 3 }, shown);
 		Assert.Equal(-1, game.RevealHint());
 	}
 }
