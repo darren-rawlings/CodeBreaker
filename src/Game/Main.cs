@@ -14,8 +14,8 @@ using Renegade.Ui;
 namespace CodeBreaker.Game;
 
 /// <summary>
-/// Code Breaker. Tap colours in the tray to fill the glowing row, then Check: gold pegs mean right
-/// colour in the right place, silver right colour in the wrong place. Crack the code and the
+/// Code Breaker. Tap colours in the tray to fill the glowing row, then Check: red pegs mean right
+/// colour in the right place, white right colour in the wrong place. Crack the code and the
 /// cover over the secret lifts away in a burst of sparks (the signature "reveal"). A hint, paid for
 /// with a rewarded ad, shows one peg of the code. Drag sideways to spin the board.
 /// </summary>
