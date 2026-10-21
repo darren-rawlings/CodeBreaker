@@ -24,7 +24,9 @@ public partial class Main : Node3D
 	public const string Title = "Code Breaker";
 
 	/// <summary>Google's test ad units until the real ones exist in AdMob (see the release playbook).</summary>
-	private static readonly AdMobConfig AdUnits = AdMobConfig.Test;
+	private static readonly AdMobConfig AdUnits = new(
+		InterstitialUnitId: "ca-app-pub-3310172999423635/4511600738",
+		RewardedUnitId: "ca-app-pub-3310172999423635/8997465647");
 
 	private const float Pitch = 0.82f;
 	private const float RowPitch = 0.72f;
